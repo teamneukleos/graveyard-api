@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AwardCycleStatus,
+  AwardPlacement,
   Prisma,
   SubmissionStatus,
   type Asset,
@@ -14,8 +16,11 @@ import {
   type User,
 } from '@prisma/client';
 import { randomBytes } from 'crypto';
+import { AwardsService } from '../awards/awards.service';
 import { slugify } from '../common/utils/string.util';
 import { PrismaService } from '../prisma/prisma.service';
+import { AdminBulkSubmissionsDto } from './dto/admin-bulk-submissions.dto';
+import { AdminUpdateSubmissionDto } from './dto/admin-update-submission.dto';
 import { AssetDto } from './dto/asset.dto';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { ListSubmissionsQueryDto } from './dto/list-submissions-query.dto';
@@ -49,7 +54,10 @@ const submissionInclude = {
 
 @Injectable()
 export class SubmissionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly awardsService: AwardsService,
+  ) {}
 
   async create(
     creatorId: string,
@@ -235,12 +243,16 @@ export class SubmissionsService {
       );
     }
 
-    const assetCount = await this.prisma.asset.count({
-      where: { submissionId: id },
-    });
-    if (assetCount < 1) {
+    const concept = existing.concept.trim();
+    const whyNeverLived = existing.whyNeverLived.trim();
+    if (concept.length < 20) {
       throw new BadRequestException(
-        'Add at least one asset (upload or link) before publishing',
+        'Concept must be at least 20 characters before publishing',
+      );
+    }
+    if (whyNeverLived.length < 10) {
+      throw new BadRequestException(
+        'Why it never lived must be at least 10 characters before publishing',
       );
     }
 
@@ -264,6 +276,130 @@ export class SubmissionsService {
 
     await this.prisma.submission.delete({ where: { id } });
     return { message: 'Draft deleted' };
+  }
+
+  async adminFindAll(limit = 100): Promise<SubmissionResponseDto[]> {
+    const rows = await this.prisma.submission.findMany({
+      include: submissionInclude,
+      orderBy: { updatedAt: 'desc' },
+      take: Math.min(200, Math.max(1, limit)),
+    });
+    return rows.map((row) => this.toResponse(row));
+  }
+
+  async adminUpdate(
+    id: string,
+    dto: AdminUpdateSubmissionDto,
+  ): Promise<SubmissionResponseDto> {
+    const existing = await this.prisma.submission.findUnique({
+      where: { id },
+      include: submissionInclude,
+    });
+    if (!existing) {
+      throw new NotFoundException('Submission not found');
+    }
+
+    if (!dto.status) {
+      return this.toResponse(existing);
+    }
+
+    const data: Prisma.SubmissionUpdateInput = { status: dto.status };
+    if (
+      dto.status === SubmissionStatus.PUBLISHED &&
+      !existing.publishedAt
+    ) {
+      data.publishedAt = new Date();
+    }
+    if (dto.status === SubmissionStatus.DRAFT) {
+      data.publishedAt = null;
+    }
+
+    const updated = await this.prisma.submission.update({
+      where: { id },
+      data,
+      include: submissionInclude,
+    });
+    return this.toResponse(updated);
+  }
+
+  async adminBulk(dto: AdminBulkSubmissionsDto): Promise<{ updated: number }> {
+    const ids = [...new Set(dto.ids)];
+
+    if (dto.action === 'publish') {
+      const result = await this.prisma.submission.updateMany({
+        where: {
+          id: { in: ids },
+          status: {
+            in: [
+              SubmissionStatus.DRAFT,
+              SubmissionStatus.REJECTED,
+              SubmissionStatus.ARCHIVED,
+            ],
+          },
+        },
+        data: {
+          status: SubmissionStatus.PUBLISHED,
+          publishedAt: new Date(),
+          rightsAttested: true,
+        },
+      });
+      return { updated: result.count };
+    }
+
+    if (dto.action === 'unpublish') {
+      const result = await this.prisma.submission.updateMany({
+        where: {
+          id: { in: ids },
+          status: {
+            notIn: [SubmissionStatus.DRAFT],
+          },
+        },
+        data: { status: SubmissionStatus.REJECTED },
+      });
+      return { updated: result.count };
+    }
+
+    const cycleId = dto.cycleId || (await this.resolveActiveCycleId());
+    if (!cycleId) {
+      throw new BadRequestException(
+        'No active award cycle found. Pass cycleId or create a JUDGING cycle.',
+      );
+    }
+
+    if (dto.action === 'enter_judging') {
+      const result = await this.awardsService.enterSubmissions(cycleId, {
+        submissionIds: ids,
+      });
+      return { updated: result.entered };
+    }
+
+    const placement =
+      dto.action === 'winners'
+        ? AwardPlacement.WINNER
+        : AwardPlacement.SHORTLISTED;
+
+    await this.awardsService.publishResults(cycleId, {
+      results: ids.map((submissionId) => ({ submissionId, placement })),
+      markCyclePublished: dto.markCyclePublished ?? true,
+    });
+
+    return { updated: ids.length };
+  }
+
+  private async resolveActiveCycleId(): Promise<string | null> {
+    const cycle = await this.prisma.awardCycle.findFirst({
+      where: {
+        status: {
+          in: [
+            AwardCycleStatus.JUDGING,
+            AwardCycleStatus.RESULTS_PUBLISHED,
+            AwardCycleStatus.UPCOMING,
+          ],
+        },
+      },
+      orderBy: [{ year: 'desc' }, { startsAt: 'desc' }],
+    });
+    return cycle?.id ?? null;
   }
 
   private async getOwnedSubmission(creatorId: string, id: string) {

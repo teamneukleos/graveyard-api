@@ -186,8 +186,14 @@ export class AssetsService {
     if (submission.creatorId !== creatorId) {
       throw new ForbiddenException('You do not own this submission');
     }
-    if (submission.status !== SubmissionStatus.DRAFT) {
-      throw new BadRequestException('Assets can only be changed on drafts');
+    // UI may publish then upload; allow assets until judging starts.
+    if (
+      submission.status !== SubmissionStatus.DRAFT &&
+      submission.status !== SubmissionStatus.PUBLISHED
+    ) {
+      throw new BadRequestException(
+        'Assets can only be changed on draft or published submissions',
+      );
     }
     return submission;
   }

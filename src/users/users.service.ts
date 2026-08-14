@@ -159,6 +159,8 @@ export class UsersService {
       bio: user.bio,
       agencyName: user.agencyName,
       avatarUrl: user.avatarUrl,
+      emailVerified: Boolean(user.emailVerifiedAt),
+      emailVerifiedAt: user.emailVerifiedAt,
       createdAt: user.createdAt,
     };
   }

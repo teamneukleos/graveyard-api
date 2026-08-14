@@ -15,4 +15,9 @@ export class CategoryResponseDto {
 
   @ApiProperty()
   sortOrder: number;
+
+  @ApiPropertyOptional({
+    description: 'Present on admin list responses',
+  })
+  isActive?: boolean;
 }

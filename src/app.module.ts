@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { AwardsModule } from './awards/awards.module';
 import { CategoriesModule } from './categories/categories.module';
+import { EventsModule } from './events/events.module';
 import { FeaturedModule } from './featured/featured.module';
 import { LeaderboardModule } from './leaderboard/leaderboard.module';
 import { LikesModule } from './likes/likes.module';
@@ -26,6 +28,8 @@ import { UsersModule } from './users/users.module';
     LeaderboardModule,
     FeaturedModule,
     AwardsModule,
+    EventsModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

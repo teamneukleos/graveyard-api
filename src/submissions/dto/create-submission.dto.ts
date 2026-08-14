@@ -45,17 +45,21 @@ export class CreateSubmissionDto {
 
   @ApiProperty({
     example: 'A campaign about late-night workers finding community on the bus.',
+    description:
+      'May be short while drafting. Publish requires at least 20 characters.',
   })
   @IsString()
-  @MinLength(20)
+  @MinLength(0)
   @MaxLength(10000)
   concept: string;
 
   @ApiProperty({
     example: 'Client paused the brief after a leadership change.',
+    description:
+      'May be short while drafting. Publish requires at least 10 characters.',
   })
   @IsString()
-  @MinLength(10)
+  @MinLength(0)
   @MaxLength(5000)
   whyNeverLived: string;
 
