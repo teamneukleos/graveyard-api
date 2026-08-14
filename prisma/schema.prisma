@@ -30,6 +30,7 @@ enum SubmissionStatus {
   UNDER_REVIEW
   SHORTLISTED
   WINNER
+  REJECTED
   ARCHIVED
 }
 
@@ -53,26 +54,70 @@ enum AwardPlacement {
   WINNER
 }
 
+enum EventType {
+  MEETUP
+  SALON
+  SCREENING
+  WORKSHOP
+}
+
+enum EventFormat {
+  IN_PERSON
+  ONLINE
+  HYBRID
+}
+
+enum EventRsvpStatus {
+  CONFIRMED
+  WAITLISTED
+  CANCELLED
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  name         String
-  role         UserRole @default(CREATOR)
-  bio          String?
-  agencyName   String?
-  avatarUrl    String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id              String    @id @default(cuid())
+  email           String    @unique
+  passwordHash    String?
+  googleId        String?   @unique
+  name            String
+  role            UserRole  @default(CREATOR)
+  bio             String?
+  agencyName      String?
+  avatarUrl       String?
+  emailVerifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   submissions      Submission[]
   likes            Like[]
   judgeAssignments JudgeAssignment[]
   judgeScores      JudgeScore[]
+  authTokens       AuthToken[]
+  eventsCreated    Event[]     @relation("EventCreatedBy")
+  eventRsvps       EventRsvp[]
 
   @@map("users")
+}
+
+enum AuthTokenType {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+}
+
+model AuthToken {
+  id        String        @id @default(cuid())
+  userId    String
+  type      AuthTokenType
+  tokenHash String        @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@map("auth_tokens")
 }
 
 model Category {
@@ -261,4 +306,45 @@ model FeaturedItem {
 
   @@index([isActive, sortOrder])
   @@map("featured_items")
+}
+
+model Event {
+  id          String      @id @default(cuid())
+  slug        String      @unique
+  title       String
+  type        EventType
+  format      EventFormat
+  city        String
+  venue       String
+  startsAt    DateTime
+  capacity    Int
+  blurb       String
+  isActive    Boolean     @default(true)
+  createdById String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  createdBy User        @relation("EventCreatedBy", fields: [createdById], references: [id])
+  rsvps     EventRsvp[]
+
+  @@index([startsAt])
+  @@index([isActive, startsAt])
+  @@map("events")
+}
+
+model EventRsvp {
+  id        String          @id @default(cuid())
+  eventId   String
+  userId    String
+  status    EventRsvpStatus @default(CONFIRMED)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([userId])
+  @@index([eventId, status])
+  @@map("event_rsvps")
 }

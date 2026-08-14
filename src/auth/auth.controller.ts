@@ -5,6 +5,8 @@ import {
   Get,
   Patch,
   Post,
+  Query,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -17,9 +19,11 @@ import {
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiQuery,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { memoryStorage } from 'multer';
 import { AuthService } from './auth.service';
 import {
@@ -27,15 +31,23 @@ import {
   type AuthUser,
 } from './decorators/current-user.decorator';
 import { AuthResponseDto, UserResponseDto } from './dto/auth-response.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { GoogleAuthService } from './google-auth.service';
 import { LoginDto } from './dto/login.dto';
+import { MessageResponseDto } from './dto/message-response.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly googleAuth: GoogleAuthService,
+  ) {}
 
   @Post('register')
   @ApiOperation({ summary: 'Register a new creator account' })
@@ -112,5 +124,80 @@ export class AuthController {
   @ApiUnauthorizedResponse()
   removeAvatar(@CurrentUser() user: AuthUser): Promise<UserResponseDto> {
     return this.authService.removeAvatar(user.id);
+  }
+
+  @Post('resend-verification')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Resend email verification link' })
+  @ApiOkResponse({ type: MessageResponseDto })
+  @ApiUnauthorizedResponse()
+  resendVerification(
+    @CurrentUser() user: AuthUser,
+  ): Promise<MessageResponseDto> {
+    return this.authService.resendVerification(user.id);
+  }
+
+  @Post('verify-email')
+  @ApiOperation({ summary: 'Verify email with a confirmation token' })
+  @ApiOkResponse({ type: UserResponseDto })
+  verifyEmail(@Body() dto: VerifyEmailDto): Promise<UserResponseDto> {
+    return this.authService.verifyEmail(dto.token);
+  }
+
+  @Post('forgot-password')
+  @ApiOperation({ summary: 'Request a password reset email' })
+  @ApiOkResponse({ type: MessageResponseDto })
+  forgotPassword(@Body() dto: ForgotPasswordDto): Promise<MessageResponseDto> {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @Post('reset-password')
+  @ApiOperation({ summary: 'Reset password with a token from email' })
+  @ApiOkResponse({ type: MessageResponseDto })
+  resetPassword(@Body() dto: ResetPasswordDto): Promise<MessageResponseDto> {
+    return this.authService.resetPassword(dto);
+  }
+
+  @Get('google')
+  @ApiOperation({ summary: 'Start Google OAuth sign-in (redirect)' })
+  @ApiQuery({
+    name: 'next',
+    required: false,
+    description: 'Frontend path to return to after login',
+  })
+  googleStart(@Query('next') next: string | undefined, @Res() res: Response) {
+    const url = this.googleAuth.getAuthorizationUrl(next);
+    return res.redirect(url);
+  }
+
+  @Get('google/callback')
+  @ApiOperation({ summary: 'Google OAuth callback (redirect to frontend)' })
+  async googleCallback(
+    @Query('code') code: string | undefined,
+    @Query('state') state: string | undefined,
+    @Query('error') error: string | undefined,
+    @Res() res: Response,
+  ) {
+    if (error) {
+      return res.redirect(
+        this.googleAuth.frontendErrorUrl(
+          error === 'access_denied'
+            ? 'Google sign-in was cancelled.'
+            : 'Google sign-in failed.',
+        ),
+      );
+    }
+
+    try {
+      const result = await this.googleAuth.handleCallback(code, state);
+      return res.redirect(
+        this.googleAuth.frontendCallbackUrl(result.accessToken, result.next),
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Google sign-in failed.';
+      return res.redirect(this.googleAuth.frontendErrorUrl(message));
+    }
   }
 }

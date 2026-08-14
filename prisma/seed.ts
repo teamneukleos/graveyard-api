@@ -104,6 +104,7 @@ async function seedSuperAdmin() {
         name,
         passwordHash,
         role: UserRole.SUPER_ADMIN,
+        emailVerifiedAt: new Date(),
       },
     });
     console.log(
@@ -117,6 +118,7 @@ async function seedSuperAdmin() {
     data: {
       name,
       role: UserRole.SUPER_ADMIN,
+      emailVerifiedAt: existing.emailVerifiedAt ?? new Date(),
       ...(resetPassword ? { passwordHash } : {}),
     },
   });

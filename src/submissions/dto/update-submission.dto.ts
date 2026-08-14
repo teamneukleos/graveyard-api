@@ -43,17 +43,23 @@ export class UpdateSubmissionDto {
   @Max(new Date().getFullYear() + 1)
   yearCreated?: number;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description:
+      'May be short while drafting. Publish requires at least 20 characters.',
+  })
   @IsOptional()
   @IsString()
-  @MinLength(20)
+  @MinLength(0)
   @MaxLength(10000)
   concept?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description:
+      'May be short while drafting. Publish requires at least 10 characters.',
+  })
   @IsOptional()
   @IsString()
-  @MinLength(10)
+  @MinLength(0)
   @MaxLength(5000)
   whyNeverLived?: string;
 

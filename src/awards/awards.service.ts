@@ -453,8 +453,9 @@ export class AwardsService {
       );
     }
 
+    const rubric = this.resolveRubricScores(dto);
     const total =
-      dto.concept + dto.craft + dto.story + dto.deservedLife;
+      rubric.concept + rubric.craft + rubric.story + rubric.deservedLife;
 
     const score = await this.prisma.judgeScore.upsert({
       where: {
@@ -468,18 +469,18 @@ export class AwardsService {
         awardCycleId: cycleId,
         submissionId: dto.submissionId,
         judgeId,
-        concept: dto.concept,
-        craft: dto.craft,
-        story: dto.story,
-        deservedLife: dto.deservedLife,
+        concept: rubric.concept,
+        craft: rubric.craft,
+        story: rubric.story,
+        deservedLife: rubric.deservedLife,
         total,
         comment: dto.comment?.trim() || null,
       },
       update: {
-        concept: dto.concept,
-        craft: dto.craft,
-        story: dto.story,
-        deservedLife: dto.deservedLife,
+        concept: rubric.concept,
+        craft: rubric.craft,
+        story: rubric.story,
+        deservedLife: rubric.deservedLife,
         total,
         comment: dto.comment?.trim() || null,
       },
@@ -812,6 +813,40 @@ export class AwardsService {
     }
 
     return cycle;
+  }
+
+  private resolveRubricScores(dto: UpsertJudgeScoreDto): {
+    concept: number;
+    craft: number;
+    story: number;
+    deservedLife: number;
+  } {
+    if (dto.overall != null) {
+      return {
+        concept: dto.overall,
+        craft: dto.overall,
+        story: dto.overall,
+        deservedLife: dto.overall,
+      };
+    }
+
+    if (
+      dto.concept == null ||
+      dto.craft == null ||
+      dto.story == null ||
+      dto.deservedLife == null
+    ) {
+      throw new BadRequestException(
+        'Provide overall, or all four rubric scores (concept, craft, story, deservedLife)',
+      );
+    }
+
+    return {
+      concept: dto.concept,
+      craft: dto.craft,
+      story: dto.story,
+      deservedLife: dto.deservedLife,
+    };
   }
 
   private async getCycleOrThrow(id: string): Promise<AwardCycle> {
