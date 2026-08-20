@@ -25,6 +25,11 @@ function roleSatisfies(userRole: UserRole, required: UserRole): boolean {
     return true;
   }
 
+  // Agencies share creator-facing permissions
+  if (required === UserRole.CREATOR && userRole === UserRole.AGENCY) {
+    return true;
+  }
+
   return false;
 }
 

@@ -1,6 +1,7 @@
 import { Controller, Delete, Param, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiForbiddenResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -22,9 +23,13 @@ export class LikesController {
   constructor(private readonly likesService: LikesService) {}
 
   @Post(':id/like')
-  @ApiOperation({ summary: 'Like a published submission' })
+  @ApiOperation({
+    summary: 'Like a published submission',
+    description: 'Requires a verified email address.',
+  })
   @ApiOkResponse({ type: LikeResponseDto })
   @ApiUnauthorizedResponse()
+  @ApiForbiddenResponse({ description: 'Email not verified' })
   like(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -33,9 +38,13 @@ export class LikesController {
   }
 
   @Delete(':id/like')
-  @ApiOperation({ summary: 'Remove like from a submission' })
+  @ApiOperation({
+    summary: 'Remove like from a submission',
+    description: 'Requires a verified email address.',
+  })
   @ApiOkResponse({ type: LikeResponseDto })
   @ApiUnauthorizedResponse()
+  @ApiForbiddenResponse({ description: 'Email not verified' })
   unlike(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,

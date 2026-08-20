@@ -48,14 +48,25 @@ export class AuthService {
       throw new ConflictException('Email is already registered');
     }
 
+    const role =
+      dto.role === UserRole.AGENCY ? UserRole.AGENCY : UserRole.CREATOR;
+    const agencyName = dto.agencyName?.trim() || null;
+
+    if (role === UserRole.AGENCY && !agencyName) {
+      throw new BadRequestException('Agency name is required for agency accounts');
+    }
+
     const passwordHash = await bcrypt.hash(dto.password, 12);
+    const displayName =
+      role === UserRole.AGENCY ? agencyName! : dto.name.trim();
+
     const user = await this.prisma.user.create({
       data: {
         email,
-        name: dto.name.trim(),
+        name: displayName,
         passwordHash,
-        agencyName: dto.agencyName?.trim() || null,
-        role: UserRole.CREATOR,
+        agencyName: role === UserRole.AGENCY ? agencyName : null,
+        role,
       },
     });
 
@@ -100,7 +111,7 @@ export class AuthService {
     userId: string,
     dto: UpdateProfileDto,
   ): Promise<UserResponseDto> {
-    await this.getUserOrThrow(userId);
+    const existing = await this.getUserOrThrow(userId);
 
     const data: {
       name?: string;
@@ -117,12 +128,30 @@ export class AuthService {
     }
     if (dto.agencyName !== undefined) {
       const agency = dto.agencyName.trim();
-      data.agencyName = agency.length ? agency : null;
+      if (existing.role === UserRole.AGENCY) {
+        if (!agency) {
+          throw new BadRequestException('Agency name is required');
+        }
+        data.agencyName = agency;
+        data.name = agency;
+      } else {
+        data.agencyName = agency.length ? agency : null;
+      }
     }
 
     const user = await this.prisma.user.update({
       where: { id: userId },
       data,
+      include: {
+        memberOfAgency: {
+          select: {
+            id: true,
+            name: true,
+            agencyName: true,
+            avatarUrl: true,
+          },
+        },
+      },
     });
 
     return this.toUserResponse(user);
@@ -361,15 +390,36 @@ export class AuthService {
     return createHash('sha256').update(token).digest('hex');
   }
 
-  private async getUserOrThrow(userId: string): Promise<User> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+  private async getUserOrThrow(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        memberOfAgency: {
+          select: {
+            id: true,
+            name: true,
+            agencyName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
     return user;
   }
 
-  private toAuthResponse(user: User): AuthResponseDto {
+  private toAuthResponse(
+    user: User & {
+      memberOfAgency?: {
+        id: string;
+        name: string;
+        agencyName: string | null;
+        avatarUrl: string | null;
+      } | null;
+    },
+  ): AuthResponseDto {
     return {
       accessToken: this.jwt.sign({
         sub: user.id,
@@ -380,7 +430,16 @@ export class AuthService {
     };
   }
 
-  private toUserResponse(user: User): UserResponseDto {
+  private toUserResponse(
+    user: User & {
+      memberOfAgency?: {
+        id: string;
+        name: string;
+        agencyName: string | null;
+        avatarUrl: string | null;
+      } | null;
+    },
+  ): UserResponseDto {
     return {
       id: user.id,
       email: user.email,
@@ -391,6 +450,9 @@ export class AuthService {
       avatarUrl: user.avatarUrl,
       emailVerified: Boolean(user.emailVerifiedAt),
       emailVerifiedAt: user.emailVerifiedAt,
+      memberOfAgency: user.memberOfAgency ?? null,
+      agencyOnboardingRequired:
+        user.role === UserRole.AGENCY && !user.agencyName?.trim(),
       createdAt: user.createdAt,
     };
   }

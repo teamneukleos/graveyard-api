@@ -9,6 +9,8 @@ import {
   AwardPlacement,
   Prisma,
   SubmissionStatus,
+  SubmitterType,
+  UserRole,
   type Asset,
   type Category,
   type Submission,
@@ -33,7 +35,13 @@ import { UpdateSubmissionDto } from './dto/update-submission.dto';
 
 type SubmissionWithRelations = Submission & {
   category: Category;
-  creator: Pick<User, 'id' | 'name' | 'agencyName' | 'avatarUrl'>;
+  creator: Pick<User, 'id' | 'name' | 'agencyName' | 'avatarUrl' | 'role'> & {
+    memberOfAgency: {
+      id: string;
+      name: string;
+      agencyName: string | null;
+    } | null;
+  };
   teamMembers: TeamMember[];
   assets: Asset[];
 };
@@ -46,6 +54,14 @@ const submissionInclude = {
       name: true,
       agencyName: true,
       avatarUrl: true,
+      role: true,
+      memberOfAgency: {
+        select: {
+          id: true,
+          name: true,
+          agencyName: true,
+        },
+      },
     },
   },
   teamMembers: { orderBy: { sortOrder: 'asc' as const } },
@@ -66,13 +82,31 @@ export class SubmissionsService {
     await this.ensureActiveCategory(dto.categoryId);
     const slug = await this.buildUniqueSlug(dto.title);
 
+    const creator = await this.prisma.user.findUnique({
+      where: { id: creatorId },
+      select: { role: true, agencyName: true, emailVerifiedAt: true },
+    });
+    if (!creator) {
+      throw new NotFoundException('User not found');
+    }
+    if (
+      creator.role === UserRole.AGENCY &&
+      !creator.agencyName?.trim()
+    ) {
+      throw new ForbiddenException('Complete agency onboarding before submitting');
+    }
+    const defaultSubmitterType =
+      creator.role === UserRole.AGENCY
+        ? SubmitterType.AGENCY
+        : SubmitterType.INDIVIDUAL;
+
     const submission = await this.prisma.submission.create({
       data: {
         title: dto.title.trim(),
         slug,
         categoryId: dto.categoryId,
         creatorId,
-        submitterType: dto.submitterType,
+        submitterType: dto.submitterType ?? defaultSubmitterType,
         yearCreated: dto.yearCreated,
         concept: dto.concept.trim(),
         whyNeverLived: dto.whyNeverLived.trim(),
@@ -477,6 +511,7 @@ export class SubmissionsService {
       rightsAttested: submission.rightsAttested,
       status: submission.status,
       likeCount: submission.likeCount,
+      voteScore: submission.voteScore,
       publishedAt: submission.publishedAt,
       createdAt: submission.createdAt,
       updatedAt: submission.updatedAt,
@@ -490,6 +525,8 @@ export class SubmissionsService {
         name: submission.creator.name,
         agencyName: submission.creator.agencyName,
         avatarUrl: submission.creator.avatarUrl,
+        role: submission.creator.role,
+        memberOfAgency: submission.creator.memberOfAgency,
       },
       teamMembers: submission.teamMembers.map((member) => ({
         id: member.id,

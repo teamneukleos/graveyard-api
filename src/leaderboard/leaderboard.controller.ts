@@ -27,14 +27,27 @@ export class LeaderboardController {
 
   @Get('creators')
   @ApiOperation({
-    summary: 'Weekly rising creators / agencies',
+    summary: 'Weekly rising creators',
     description:
-      'Ranks creators by likes their published work received since Monday 00:00 UTC.',
+      'Ranks individual creators (role CREATOR) by weighted votes their published work received since Monday 00:00 UTC.',
   })
   @ApiOkResponse({ type: CreatorsLeaderboardResponseDto })
   creators(
     @Query() query: LeaderboardQueryDto,
   ): Promise<CreatorsLeaderboardResponseDto> {
     return this.leaderboardService.creators(query.limit ?? 20);
+  }
+
+  @Get('agencies')
+  @ApiOperation({
+    summary: 'Weekly rising agencies',
+    description:
+      'Ranks agency accounts by weighted votes their published work received since Monday 00:00 UTC.',
+  })
+  @ApiOkResponse({ type: CreatorsLeaderboardResponseDto })
+  agencies(
+    @Query() query: LeaderboardQueryDto,
+  ): Promise<CreatorsLeaderboardResponseDto> {
+    return this.leaderboardService.agencies(query.limit ?? 20);
   }
 }

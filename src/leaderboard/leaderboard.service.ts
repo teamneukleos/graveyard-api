@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { SubmissionStatus } from '@prisma/client';
+import { SubmissionStatus, UserRole } from '@prisma/client';
 import { endOfUtcWeek, startOfUtcWeek } from '../common/utils/date.util';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -32,8 +32,8 @@ export class LeaderboardService {
           status: { in: PUBLIC_STATUSES },
         },
       },
-      _count: { _all: true },
-      orderBy: { _count: { submissionId: 'desc' } },
+      _sum: { weight: true },
+      orderBy: { _sum: { weight: 'desc' } },
       take: limit,
     });
 
@@ -49,7 +49,12 @@ export class LeaderboardService {
       include: {
         category: { select: { slug: true } },
         creator: {
-          select: { id: true, name: true, agencyName: true },
+          select: {
+            id: true,
+            name: true,
+            agencyName: true,
+            role: true,
+          },
         },
         assets: {
           where: { isCover: true },
@@ -67,16 +72,18 @@ export class LeaderboardService {
         if (!submission) return null;
         return {
           rank: index + 1,
-          weeklyLikes: row._count._all,
+          weeklyLikes: row._sum.weight ?? 0,
           submissionId: submission.id,
           title: submission.title,
           slug: submission.slug,
           likeCount: submission.likeCount,
+          voteScore: submission.voteScore,
           coverUrl: submission.assets[0]?.url ?? null,
           categorySlug: submission.category.slug,
           creatorId: submission.creator.id,
           creatorName: submission.creator.name,
           agencyName: submission.creator.agencyName,
+          creatorRole: submission.creator.role,
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null)
@@ -86,6 +93,17 @@ export class LeaderboardService {
   }
 
   async creators(limit = 20): Promise<CreatorsLeaderboardResponseDto> {
+    return this.rankOwnersByRole(UserRole.CREATOR, limit);
+  }
+
+  async agencies(limit = 20): Promise<CreatorsLeaderboardResponseDto> {
+    return this.rankOwnersByRole(UserRole.AGENCY, limit);
+  }
+
+  private async rankOwnersByRole(
+    role: Extract<UserRole, 'CREATOR' | 'AGENCY'>,
+    limit: number,
+  ): Promise<CreatorsLeaderboardResponseDto> {
     const window = this.currentWindow();
 
     const likes = await this.prisma.like.findMany({
@@ -96,9 +114,11 @@ export class LeaderboardService {
         },
         submission: {
           status: { in: PUBLIC_STATUSES },
+          creator: { role },
         },
       },
       select: {
+        weight: true,
         submission: {
           select: { creatorId: true, id: true },
         },
@@ -120,7 +140,7 @@ export class LeaderboardService {
         weeklyLikes: 0,
         submissionIds: new Set<string>(),
       };
-      entry.weeklyLikes += 1;
+      entry.weeklyLikes += like.weight;
       entry.submissionIds.add(like.submission.id);
       stats.set(creatorId, entry);
     }
@@ -129,8 +149,8 @@ export class LeaderboardService {
       .sort((a, b) => b[1].weeklyLikes - a[1].weeklyLikes)
       .slice(0, limit);
 
-    const creators = await this.prisma.user.findMany({
-      where: { id: { in: ranked.map(([id]) => id) } },
+    const owners = await this.prisma.user.findMany({
+      where: { id: { in: ranked.map(([id]) => id) }, role },
       select: {
         id: true,
         name: true,
@@ -138,19 +158,19 @@ export class LeaderboardService {
         avatarUrl: true,
       },
     });
-    const creatorById = new Map(creators.map((c) => [c.id, c]));
+    const ownerById = new Map(owners.map((c) => [c.id, c]));
 
     const items = ranked
       .map(([creatorId, data], index) => {
-        const creator = creatorById.get(creatorId);
-        if (!creator) return null;
+        const owner = ownerById.get(creatorId);
+        if (!owner) return null;
         return {
           rank: index + 1,
           weeklyLikes: data.weeklyLikes,
-          creatorId: creator.id,
-          name: creator.name,
-          agencyName: creator.agencyName,
-          avatarUrl: creator.avatarUrl,
+          creatorId: owner.id,
+          name: owner.agencyName || owner.name,
+          agencyName: owner.agencyName,
+          avatarUrl: owner.avatarUrl,
           likedSubmissions: data.submissionIds.size,
         };
       })

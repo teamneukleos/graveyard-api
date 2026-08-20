@@ -127,3 +127,32 @@ export class EnterSubmissionsResponseDto {
   @ApiProperty({ type: [String] })
   submissionIds: string[];
 }
+
+export class AwardEntryResponseDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  awardCycleId: string;
+
+  @ApiProperty()
+  submissionId: string;
+
+  @ApiProperty()
+  enteredById: string;
+
+  @ApiProperty()
+  createdAt: Date;
+
+  @ApiPropertyOptional()
+  cycleName?: string;
+
+  @ApiPropertyOptional()
+  cycleYear?: number;
+
+  @ApiPropertyOptional()
+  cycleStatus?: AwardCycleStatus;
+
+  @ApiPropertyOptional()
+  submissionTitle?: string;
+}

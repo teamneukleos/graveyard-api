@@ -18,6 +18,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AssignJudgeDto } from './dto/assign-judge.dto';
 import {
   AwardCycleResponseDto,
+  AwardEntryResponseDto,
   EnterSubmissionsResponseDto,
   JudgeQueueItemDto,
   JudgeScoreResponseDto,
@@ -285,6 +286,7 @@ export class AwardsService {
   async enterSubmissions(
     cycleId: string,
     dto: EnterSubmissionsDto,
+    enteredById?: string,
   ): Promise<EnterSubmissionsResponseDto> {
     const cycle = await this.getCycleOrThrow(cycleId);
     if (
@@ -308,7 +310,7 @@ export class AwardsService {
           ],
         },
       },
-      select: { id: true },
+      select: { id: true, creatorId: true },
     });
 
     if (submissions.length === 0) {
@@ -316,26 +318,244 @@ export class AwardsService {
     }
 
     const ids = submissions.map((s) => s.id);
-    const result = await this.prisma.submission.updateMany({
-      where: {
-        id: { in: ids },
-        status: SubmissionStatus.PUBLISHED,
-      },
-      data: { status: SubmissionStatus.UNDER_REVIEW },
+    await this.prisma.$transaction(async (tx) => {
+      for (const submission of submissions) {
+        await tx.awardEntry.upsert({
+          where: {
+            awardCycleId_submissionId: {
+              awardCycleId: cycleId,
+              submissionId: submission.id,
+            },
+          },
+          create: {
+            awardCycleId: cycleId,
+            submissionId: submission.id,
+            enteredById: enteredById || submission.creatorId,
+          },
+          update: {},
+        });
+      }
+
+      await tx.submission.updateMany({
+        where: {
+          id: { in: ids },
+          status: SubmissionStatus.PUBLISHED,
+        },
+        data: { status: SubmissionStatus.UNDER_REVIEW },
+      });
+
+      if (cycle.status === AwardCycleStatus.UPCOMING) {
+        await tx.awardCycle.update({
+          where: { id: cycleId },
+          data: { status: AwardCycleStatus.JUDGING },
+        });
+      }
     });
 
-    // Ensure cycle is in JUDGING once work is entered
-    if (cycle.status === AwardCycleStatus.UPCOMING) {
-      await this.prisma.awardCycle.update({
-        where: { id: cycleId },
-        data: { status: AwardCycleStatus.JUDGING },
-      });
-    }
-
     return {
-      entered: result.count,
+      entered: ids.length,
       submissionIds: ids,
     };
+  }
+
+  async enterOwnSubmission(
+    cycleId: string,
+    userId: string,
+    submissionId: string,
+  ): Promise<AwardEntryResponseDto> {
+    const cycle = await this.getCycleOrThrow(cycleId);
+    if (
+      cycle.status !== AwardCycleStatus.JUDGING &&
+      cycle.status !== AwardCycleStatus.UPCOMING
+    ) {
+      throw new BadRequestException(
+        'You can only enter work while the cycle is open for entries',
+      );
+    }
+
+    const submission = await this.prisma.submission.findFirst({
+      where: {
+        id: submissionId,
+        creatorId: userId,
+        status: {
+          in: [SubmissionStatus.PUBLISHED, SubmissionStatus.UNDER_REVIEW],
+        },
+      },
+      select: { id: true, title: true, status: true },
+    });
+    if (!submission) {
+      throw new NotFoundException(
+        'Published submission not found (or you do not own it)',
+      );
+    }
+
+    const existing = await this.prisma.awardEntry.findUnique({
+      where: {
+        awardCycleId_submissionId: {
+          awardCycleId: cycleId,
+          submissionId: submission.id,
+        },
+      },
+    });
+    if (existing) {
+      throw new ConflictException('This project is already entered in this cycle');
+    }
+
+    const entry = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.awardEntry.create({
+        data: {
+          awardCycleId: cycleId,
+          submissionId: submission.id,
+          enteredById: userId,
+        },
+      });
+
+      if (submission.status === SubmissionStatus.PUBLISHED) {
+        await tx.submission.update({
+          where: { id: submission.id },
+          data: { status: SubmissionStatus.UNDER_REVIEW },
+        });
+      }
+
+      if (cycle.status === AwardCycleStatus.UPCOMING) {
+        await tx.awardCycle.update({
+          where: { id: cycleId },
+          data: { status: AwardCycleStatus.JUDGING },
+        });
+      }
+
+      return created;
+    });
+
+    return {
+      id: entry.id,
+      awardCycleId: entry.awardCycleId,
+      submissionId: entry.submissionId,
+      enteredById: entry.enteredById,
+      createdAt: entry.createdAt,
+      cycleName: cycle.name,
+      cycleYear: cycle.year,
+      cycleStatus: AwardCycleStatus.JUDGING,
+      submissionTitle: submission.title,
+    };
+  }
+
+  async withdrawOwnEntry(
+    cycleId: string,
+    userId: string,
+    submissionId: string,
+  ): Promise<{ message: string }> {
+    const cycle = await this.getCycleOrThrow(cycleId);
+    if (
+      cycle.status !== AwardCycleStatus.JUDGING &&
+      cycle.status !== AwardCycleStatus.UPCOMING
+    ) {
+      throw new BadRequestException(
+        'Entries can only be withdrawn while the cycle is open',
+      );
+    }
+
+    const entry = await this.prisma.awardEntry.findUnique({
+      where: {
+        awardCycleId_submissionId: {
+          awardCycleId: cycleId,
+          submissionId,
+        },
+      },
+    });
+    if (!entry || entry.enteredById !== userId) {
+      throw new NotFoundException('Entry not found');
+    }
+
+    const scoreCount = await this.prisma.judgeScore.count({
+      where: { awardCycleId: cycleId, submissionId },
+    });
+    if (scoreCount > 0) {
+      throw new BadRequestException(
+        'Cannot withdraw after judges have started scoring this project',
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.awardEntry.delete({ where: { id: entry.id } });
+
+      const remaining = await tx.awardEntry.count({
+        where: { submissionId },
+      });
+      if (remaining === 0) {
+        await tx.submission.updateMany({
+          where: {
+            id: submissionId,
+            status: SubmissionStatus.UNDER_REVIEW,
+            creatorId: userId,
+          },
+          data: { status: SubmissionStatus.PUBLISHED },
+        });
+      }
+    });
+
+    return { message: 'Withdrawn from award cycle' };
+  }
+
+  async listOpenCycles(): Promise<AwardCycleResponseDto[]> {
+    const cycles = await this.prisma.awardCycle.findMany({
+      where: {
+        status: {
+          in: [AwardCycleStatus.UPCOMING, AwardCycleStatus.JUDGING],
+        },
+      },
+      orderBy: [{ year: 'desc' }, { startsAt: 'desc' }],
+      include: {
+        _count: {
+          select: {
+            judgeAssignments: true,
+            judgeScores: true,
+            awardEntries: true,
+          },
+        },
+      },
+    });
+
+    return cycles.map((cycle) =>
+      this.toCycleResponse(cycle, {
+        judgeCount: cycle._count.judgeAssignments,
+        scoreCount: cycle._count.judgeScores,
+      }),
+    );
+  }
+
+  async listEntriesForSubmission(
+    submissionId: string,
+    userId: string,
+  ): Promise<AwardEntryResponseDto[]> {
+    const submission = await this.prisma.submission.findFirst({
+      where: { id: submissionId, creatorId: userId },
+      select: { id: true },
+    });
+    if (!submission) {
+      throw new NotFoundException('Submission not found');
+    }
+
+    const entries = await this.prisma.awardEntry.findMany({
+      where: { submissionId },
+      include: {
+        awardCycle: {
+          select: { id: true, name: true, year: true, status: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return entries.map((entry) => ({
+      id: entry.id,
+      awardCycleId: entry.awardCycleId,
+      submissionId: entry.submissionId,
+      enteredById: entry.enteredById,
+      createdAt: entry.createdAt,
+      cycleName: entry.awardCycle.name,
+      cycleYear: entry.awardCycle.year,
+      cycleStatus: entry.awardCycle.status,
+    }));
   }
 
   async getJudgeQueue(
@@ -356,13 +576,12 @@ export class AwardsService {
     const submissions = await this.prisma.submission.findMany({
       where: {
         OR: [
+          { awardEntries: { some: { awardCycleId: cycleId } } },
           {
             status: SubmissionStatus.UNDER_REVIEW,
             yearCreated: cycle.year,
           },
-          {
-            judgeScores: { some: { awardCycleId: cycleId } },
-          },
+          { judgeScores: { some: { awardCycleId: cycleId } } },
         ],
       },
       include: {

@@ -161,6 +161,9 @@ export class UsersService {
       avatarUrl: user.avatarUrl,
       emailVerified: Boolean(user.emailVerifiedAt),
       emailVerifiedAt: user.emailVerifiedAt,
+      memberOfAgency: null,
+      agencyOnboardingRequired:
+        user.role === UserRole.AGENCY && !user.agencyName?.trim(),
       createdAt: user.createdAt,
     };
   }

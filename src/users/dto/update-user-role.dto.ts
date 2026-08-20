@@ -6,6 +6,7 @@ export class UpdateUserRoleDto {
   @ApiProperty({
     enum: [
       UserRole.CREATOR,
+      UserRole.AGENCY,
       UserRole.JUDGE,
       UserRole.ADMIN,
       UserRole.SUPER_ADMIN,

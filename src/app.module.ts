@@ -8,6 +8,7 @@ import { AwardsModule } from './awards/awards.module';
 import { CategoriesModule } from './categories/categories.module';
 import { EventsModule } from './events/events.module';
 import { FeaturedModule } from './featured/featured.module';
+import { FollowsModule } from './follows/follows.module';
 import { LeaderboardModule } from './leaderboard/leaderboard.module';
 import { LikesModule } from './likes/likes.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -25,6 +26,7 @@ import { UsersModule } from './users/users.module';
     CategoriesModule,
     SubmissionsModule,
     LikesModule,
+    FollowsModule,
     LeaderboardModule,
     FeaturedModule,
     AwardsModule,

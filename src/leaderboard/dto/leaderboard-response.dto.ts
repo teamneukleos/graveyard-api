@@ -12,7 +12,7 @@ export class WorkLeaderboardItemDto {
   @ApiProperty()
   rank: number;
 
-  @ApiProperty({ description: 'Likes received during this week window' })
+  @ApiProperty({ description: 'Weighted points received during this week window' })
   weeklyLikes: number;
 
   @ApiProperty()
@@ -26,6 +26,9 @@ export class WorkLeaderboardItemDto {
 
   @ApiProperty()
   likeCount: number;
+
+  @ApiProperty()
+  voteScore: number;
 
   @ApiPropertyOptional({ nullable: true })
   coverUrl: string | null;
@@ -41,6 +44,9 @@ export class WorkLeaderboardItemDto {
 
   @ApiPropertyOptional({ nullable: true })
   agencyName: string | null;
+
+  @ApiPropertyOptional()
+  creatorRole?: string;
 }
 
 export class CreatorLeaderboardItemDto {
