@@ -27,15 +27,17 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { AwardsService } from './awards.service';
 import { AssignJudgeDto } from './dto/assign-judge.dto';
+import { CreateAwardCycleDto } from './dto/create-award-cycle.dto';
+import { EnterOwnSubmissionDto } from './dto/enter-own-submission.dto';
+import { EnterSubmissionsDto } from './dto/enter-submissions.dto';
+import { PublishResultsDto } from './dto/publish-results.dto';
 import {
   AwardCycleResponseDto,
+  AwardEntryResponseDto,
   EnterSubmissionsResponseDto,
   JudgeQueueItemDto,
   JudgeScoreResponseDto,
 } from './dto/award-response.dto';
-import { CreateAwardCycleDto } from './dto/create-award-cycle.dto';
-import { EnterSubmissionsDto } from './dto/enter-submissions.dto';
-import { PublishResultsDto } from './dto/publish-results.dto';
 import {
   AwardResultItemDto,
   PublishResultsResponseDto,
@@ -54,6 +56,29 @@ export class AwardsController {
   @ApiOkResponse({ type: AwardCycleResponseDto, isArray: true })
   list(): Promise<AwardCycleResponseDto[]> {
     return this.awardsService.listCycles();
+  }
+
+  @Get('open')
+  @ApiOperation({
+    summary: 'List award cycles open for project entries',
+    description: 'UPCOMING and JUDGING cycles that creators/agencies can enter.',
+  })
+  @ApiOkResponse({ type: AwardCycleResponseDto, isArray: true })
+  listOpen(): Promise<AwardCycleResponseDto[]> {
+    return this.awardsService.listOpenCycles();
+  }
+
+  @Get('entries/by-submission/:submissionId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List award-cycle entries for one of your submissions' })
+  @ApiOkResponse({ type: AwardEntryResponseDto, isArray: true })
+  @ApiUnauthorizedResponse()
+  entriesForSubmission(
+    @Param('submissionId') submissionId: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<AwardEntryResponseDto[]> {
+    return this.awardsService.listEntriesForSubmission(submissionId, user.id);
   }
 
   @Get(':id')
@@ -127,7 +152,7 @@ export class AwardsController {
   @ApiOperation({
     summary: 'Enter published submissions into judging (admin)',
     description:
-      'Moves PUBLISHED submissions to UNDER_REVIEW and opens JUDGING if needed.',
+      'Creates award entries, moves PUBLISHED submissions to UNDER_REVIEW, and opens JUDGING if needed.',
   })
   @ApiOkResponse({ type: EnterSubmissionsResponseDto })
   @ApiUnauthorizedResponse()
@@ -135,8 +160,42 @@ export class AwardsController {
   enterSubmissions(
     @Param('id') id: string,
     @Body() dto: EnterSubmissionsDto,
+    @CurrentUser() user: AuthUser,
   ): Promise<EnterSubmissionsResponseDto> {
-    return this.awardsService.enterSubmissions(id, dto);
+    return this.awardsService.enterSubmissions(id, dto, user.id);
+  }
+
+  @Post(':id/entries')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Enter your published project into an award cycle',
+    description: 'Creators and agencies can nominate their own published work.',
+  })
+  @ApiOkResponse({ type: AwardEntryResponseDto })
+  @ApiUnauthorizedResponse()
+  enterOwn(
+    @Param('id') id: string,
+    @Body() dto: EnterOwnSubmissionDto,
+    @CurrentUser() user: AuthUser,
+  ): Promise<AwardEntryResponseDto> {
+    return this.awardsService.enterOwnSubmission(id, user.id, dto.submissionId);
+  }
+
+  @Delete(':id/entries/:submissionId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Withdraw your project from an award cycle' })
+  @ApiOkResponse({
+    schema: { properties: { message: { type: 'string' } } },
+  })
+  @ApiUnauthorizedResponse()
+  withdrawOwn(
+    @Param('id') id: string,
+    @Param('submissionId') submissionId: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<{ message: string }> {
+    return this.awardsService.withdrawOwnEntry(id, user.id, submissionId);
   }
 
   @Get(':id/queue')

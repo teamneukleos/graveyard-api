@@ -166,8 +166,17 @@ export class AuthController {
     required: false,
     description: 'Frontend path to return to after login',
   })
-  googleStart(@Query('next') next: string | undefined, @Res() res: Response) {
-    const url = this.googleAuth.getAuthorizationUrl(next);
+  @ApiQuery({
+    name: 'role',
+    required: false,
+    description: 'Signup intent for new accounts: CREATOR or AGENCY',
+  })
+  googleStart(
+    @Query('next') next: string | undefined,
+    @Query('role') role: string | undefined,
+    @Res() res: Response,
+  ) {
+    const url = this.googleAuth.getAuthorizationUrl(next, role);
     return res.redirect(url);
   }
 

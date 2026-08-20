@@ -53,6 +53,16 @@ export class SubmissionCreatorResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   avatarUrl: string | null;
+
+  @ApiPropertyOptional()
+  role?: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  memberOfAgency?: {
+    id: string;
+    name: string;
+    agencyName: string | null;
+  } | null;
 }
 
 export class SubmissionCategoryResponseDto {
@@ -96,6 +106,9 @@ export class SubmissionResponseDto {
 
   @ApiProperty()
   likeCount: number;
+
+  @ApiProperty({ description: 'Weighted vote score' })
+  voteScore: number;
 
   @ApiPropertyOptional({ nullable: true })
   publishedAt: Date | null;

@@ -1,6 +1,20 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
+export class MemberAgencySummaryDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  name: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  agencyName: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  avatarUrl: string | null;
+}
+
 export class UserResponseDto {
   @ApiProperty()
   id: string;
@@ -31,6 +45,19 @@ export class UserResponseDto {
     description: 'When the email was verified; null if still unverified',
   })
   emailVerifiedAt: Date | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    type: MemberAgencySummaryDto,
+    description: 'Agency this creator belongs to, if any',
+  })
+  memberOfAgency: MemberAgencySummaryDto | null;
+
+  @ApiProperty({
+    description:
+      'True when an AGENCY account still needs to set agencyName (forced onboarding)',
+  })
+  agencyOnboardingRequired: boolean;
 
   @ApiProperty()
   createdAt: Date;

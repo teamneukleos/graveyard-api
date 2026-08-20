@@ -12,8 +12,11 @@ import { OAuth2Client } from 'google-auth-library';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
 
+type RegisterIntent = 'CREATOR' | 'AGENCY';
+
 type OAuthState = {
   next: string;
+  role: RegisterIntent;
   exp: number;
   nonce: string;
 };
@@ -48,13 +51,14 @@ export class GoogleAuthService {
     return Boolean(this.oauthClient);
   }
 
-  getAuthorizationUrl(nextPath?: string): string {
+  getAuthorizationUrl(nextPath?: string, role?: string): string {
     if (!this.oauthClient) {
       throw new ServiceUnavailableException('Google sign-in is not configured');
     }
 
     const state = this.signState({
       next: this.sanitizeNext(nextPath),
+      role: this.sanitizeRole(role),
       exp: Date.now() + 10 * 60 * 1000,
       nonce: randomBytes(8).toString('hex'),
     });
@@ -96,15 +100,23 @@ export class GoogleAuthService {
       throw new UnauthorizedException('Google email is not verified');
     }
 
-    const user = await this.findOrCreateGoogleUser({
-      googleId: payload.sub,
-      email: payload.email.toLowerCase().trim(),
-      name: payload.name?.trim() || payload.email.split('@')[0] || 'Creator',
-      avatarUrl: payload.picture || null,
-    });
+    const user = await this.findOrCreateGoogleUser(
+      {
+        googleId: payload.sub,
+        email: payload.email.toLowerCase().trim(),
+        name: payload.name?.trim() || payload.email.split('@')[0] || 'Creator',
+        avatarUrl: payload.picture || null,
+      },
+      parsedState.role,
+    );
 
     const auth = this.authService.toAuthResponsePublic(user);
-    return { accessToken: auth.accessToken, next: parsedState.next };
+    const next =
+      user.role === UserRole.AGENCY && !user.agencyName?.trim()
+        ? '/onboarding/agency'
+        : parsedState.next;
+
+    return { accessToken: auth.accessToken, next };
   }
 
   frontendCallbackUrl(accessToken: string, next: string) {
@@ -131,16 +143,20 @@ export class GoogleAuthService {
     return url.toString();
   }
 
-  private async findOrCreateGoogleUser(input: {
-    googleId: string;
-    email: string;
-    name: string;
-    avatarUrl: string | null;
-  }): Promise<User> {
+  private async findOrCreateGoogleUser(
+    input: {
+      googleId: string;
+      email: string;
+      name: string;
+      avatarUrl: string | null;
+    },
+    intent: RegisterIntent,
+  ): Promise<User> {
     const byGoogle = await this.prisma.user.findUnique({
       where: { googleId: input.googleId },
     });
     if (byGoogle) {
+      // Existing accounts keep their role; intent only applies to new signups.
       return byGoogle;
     }
 
@@ -163,6 +179,9 @@ export class GoogleAuthService {
       });
     }
 
+    const role =
+      intent === 'AGENCY' ? UserRole.AGENCY : UserRole.CREATOR;
+
     return this.prisma.user.create({
       data: {
         email: input.email,
@@ -171,7 +190,9 @@ export class GoogleAuthService {
         passwordHash: null,
         avatarUrl: input.avatarUrl,
         emailVerifiedAt: new Date(),
-        role: UserRole.CREATOR,
+        role,
+        // Agency name collected in forced onboarding.
+        agencyName: null,
       },
     });
   }
@@ -183,6 +204,10 @@ export class GoogleAuthService {
       return '/portal';
     }
     return trimmed.slice(0, 200);
+  }
+
+  private sanitizeRole(role?: string): RegisterIntent {
+    return role?.toUpperCase() === 'AGENCY' ? 'AGENCY' : 'CREATOR';
   }
 
   private stateSecret() {
@@ -227,6 +252,7 @@ export class GoogleAuthService {
 
     return {
       next: this.sanitizeNext(parsed.next),
+      role: this.sanitizeRole(parsed.role),
       exp: parsed.exp,
       nonce: parsed.nonce || '',
     };

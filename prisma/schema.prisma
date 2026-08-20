@@ -14,6 +14,7 @@ datasource db {
 
 enum UserRole {
   CREATOR
+  AGENCY
   JUDGE
   ADMIN
   SUPER_ADMIN
@@ -76,27 +77,34 @@ enum EventRsvpStatus {
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model User {
-  id              String    @id @default(cuid())
-  email           String    @unique
-  passwordHash    String?
-  googleId        String?   @unique
-  name            String
-  role            UserRole  @default(CREATOR)
-  bio             String?
-  agencyName      String?
-  avatarUrl       String?
-  emailVerifiedAt DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                String    @id @default(cuid())
+  email             String    @unique
+  passwordHash      String?
+  googleId          String?   @unique
+  name              String
+  role              UserRole  @default(CREATOR)
+  bio               String?
+  agencyName        String?
+  avatarUrl         String?
+  emailVerifiedAt   DateTime?
+  memberOfAgencyId  String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
+  memberOfAgency   User?  @relation("AgencyMembers", fields: [memberOfAgencyId], references: [id], onDelete: SetNull)
+  members          User[] @relation("AgencyMembers")
   submissions      Submission[]
   likes            Like[]
+  following        Follow[] @relation("UserFollowing")
+  followers        Follow[] @relation("UserFollowers")
   judgeAssignments JudgeAssignment[]
   judgeScores      JudgeScore[]
+  awardEntries     AwardEntry[] @relation("AwardEntriesEntered")
   authTokens       AuthToken[]
   eventsCreated    Event[]     @relation("EventCreatedBy")
   eventRsvps       EventRsvp[]
 
+  @@index([memberOfAgencyId])
   @@map("users")
 }
 
@@ -118,6 +126,21 @@ model AuthToken {
 
   @@index([userId, type])
   @@map("auth_tokens")
+}
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+
+  follower  User @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followingId])
+  @@index([followerId])
+  @@map("follows")
 }
 
 model Category {
@@ -149,6 +172,7 @@ model Submission {
   rightsAttested Boolean          @default(false)
   status         SubmissionStatus @default(DRAFT)
   likeCount      Int              @default(0)
+  voteScore      Int              @default(0)
   publishedAt    DateTime?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
@@ -160,6 +184,7 @@ model Submission {
   likes        Like[]
   judgeScores  JudgeScore[]
   awardResults AwardResult[]
+  awardEntries AwardEntry[]
   featuredItems FeaturedItem[]
 
   @@index([status])
@@ -205,6 +230,7 @@ model Like {
   id           String   @id @default(cuid())
   submissionId String
   userId       String
+  weight       Int      @default(1)
   createdAt    DateTime @default(now())
 
   submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
@@ -230,10 +256,28 @@ model AwardCycle {
   judgeAssignments JudgeAssignment[]
   judgeScores      JudgeScore[]
   awardResults     AwardResult[]
+  awardEntries     AwardEntry[]
 
   @@unique([year, name])
   @@index([status])
   @@map("award_cycles")
+}
+
+model AwardEntry {
+  id           String   @id @default(cuid())
+  awardCycleId String
+  submissionId String
+  enteredById  String
+  createdAt    DateTime @default(now())
+
+  awardCycle AwardCycle @relation(fields: [awardCycleId], references: [id], onDelete: Cascade)
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  enteredBy  User       @relation("AwardEntriesEntered", fields: [enteredById], references: [id], onDelete: Cascade)
+
+  @@unique([awardCycleId, submissionId])
+  @@index([submissionId])
+  @@index([enteredById])
+  @@map("award_entries")
 }
 
 model JudgeAssignment {
