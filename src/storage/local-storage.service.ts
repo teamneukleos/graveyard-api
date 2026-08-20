@@ -57,9 +57,13 @@ export class LocalStorageService implements ObjectStorage {
       return keyOrUrl.replace(/^\/+/, '').replace(/^uploads\//, '');
     }
 
-    const prefix = `${this.publicBaseUrl()}/uploads/`;
-    if (!keyOrUrl.startsWith(prefix)) return null;
-    return keyOrUrl.slice(prefix.length);
+    try {
+      const parsed = new URL(keyOrUrl);
+      if (!parsed.pathname.startsWith('/uploads/')) return null;
+      return parsed.pathname.slice('/uploads/'.length);
+    } catch {
+      return null;
+    }
   }
 
   private publicBaseUrl(): string {
